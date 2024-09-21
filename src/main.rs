@@ -182,6 +182,40 @@ fn pretty_print(node: &AstNode) -> String {
     pp_helper(node, 0)
 }
 
+#[derive(Debug, Clone)]
+enum Value {
+    Number(f64),
+    Symbol(String),
+    List(Vec<Value>),
+}
+
+fn eval(node: &AstNode) -> Result<Value, String> {
+    match node {
+        AstNode::Number(n) => Ok(Value::Number(*n)),
+        AstNode::Symbol(s) => Ok(Value::Symbol(s.clone())),
+        AstNode::List(list) => {
+            let mut evaluated = Vec::new();
+            for node in list {
+                evaluated.push(eval(node)?);
+            }
+            Ok(Value::List(evaluated))
+        }
+        AstNode::Add(a, b) => {
+            let a_val = eval(a)?;
+            let b_val = eval(b)?;
+            match (a_val, b_val) {
+                (Value::Number(x), Value::Number(y)) => Ok(Value::Number(x + y)),
+                _ => Err("Addition requires two numbers".to_string()),
+            }
+        }
+        AstNode::Print(a) => {
+            let value = eval(a)?;
+            println!("{:?}", value);
+            Ok(value)
+        }
+    }
+}
+
 type Env = HashMap<Symbol, Rc<Expr>>;
 
 fn main() {
@@ -189,4 +223,8 @@ fn main() {
     println!("{}", program);
     println!("{:?}", tokenize(program));
     println!("{}", pretty_print(&parse(program)));
+    match eval(&parse(program)) {
+        Ok(value) => println!("{:?}", value),
+        Err(e) => println!("{}", e),
+    };
 }
