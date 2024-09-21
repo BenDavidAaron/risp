@@ -288,6 +288,17 @@ fn eval(node: &AstNode, environment: Rc<RefCell<Environment>>) -> Result<Value, 
                             Err("Second argument to let must be a list of bindings".to_string())
                         }
                     }
+                    "add" => {
+                        if list.len() != 3 {
+                            return Err("add requires exactly 2 arguments".to_string());
+                        }
+                        let a = eval(&list[1], Rc::clone(&environment))?;
+                        let b = eval(&list[2], Rc::clone(&environment))?;
+                        match (a, b) {
+                            (Value::Number(x), Value::Number(y)) => Ok(Value::Number(x + y)),
+                            _ => Err("add requires two numbers".to_string()),
+                        }
+                    }
                     _ => {
                         let mut evaluated = Vec::new();
                         for node in list {
@@ -332,7 +343,7 @@ fn eval(node: &AstNode, environment: Rc<RefCell<Environment>>) -> Result<Value, 
 
 fn main() {
     let global_env = Rc::new(RefCell::new(Environment::new()));
-    let program = r#"(let ((x 1)) x)"#;
+    let program = r#"(let ((x 1) (y 2)) (add x y))"#;
     // println!("{}", program);
     // println!("{:?}", tokenize(program));
     println!("{}", pretty_print(&parse(program)));
