@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 use std::rc::Rc;
@@ -12,12 +13,14 @@ enum Atom {
     Number(Number),
 }
 
+#[derive(Debug)]
 enum AstNode {
     Symbol(Symbol),
     Number(Number),
     List(Vec<AstNode>),
     Add(Box<AstNode>, Box<AstNode>),
     Print(Box<AstNode>),
+    Let(Vec<(String, Box<AstNode>)>, Box<AstNode>), // (bindings, body)
 }
 
 impl fmt::Display for AstNode {
@@ -37,6 +40,7 @@ impl fmt::Display for AstNode {
             }
             AstNode::Add(a, b) => write!(f, "(+ {} {})", a, b),
             AstNode::Print(a) => write!(f, "(print {})", a),
+            AstNode::Let(a, b) => write!(f, "(let {:?} {})", a, b),
         }
     }
 }
@@ -101,6 +105,41 @@ fn read_from_tokens(tokens: &mut Vec<String>) -> Expr {
         }
     } else {
         panic!("unexpected EOF while reading");
+    }
+}
+
+struct Environment {
+    values: HashMap<String, Value>,
+    parent: Option<Rc<RefCell<Environment>>>,
+}
+
+impl Environment {
+    fn new() -> Self {
+        Environment {
+            values: HashMap::new(),
+            parent: None,
+        }
+    }
+
+    fn with_parent(parent: Rc<RefCell<Environment>>) -> Self {
+        Environment {
+            values: HashMap::new(),
+            parent: Some(parent),
+        }
+    }
+
+    fn set(&mut self, key: String, value: Value) {
+        self.values.insert(key, value);
+    }
+
+    fn get(&self, key: &str) -> Option<Value> {
+        match self.values.get(key) {
+            Some(value) => Some(value.clone()),
+            None => match &self.parent {
+                Some(parent) => parent.borrow().get(key),
+                None => None,
+            },
+        }
     }
 }
 
@@ -176,6 +215,18 @@ fn pretty_print(node: &AstNode) -> String {
                 result.push(')');
                 result
             }
+            AstNode::Let(bindings, body) => {
+                let mut result = format!("{}(\n{}  let (\n", indent_str, indent_str);
+                for (var, value) in bindings {
+                    result.push_str(&format!("{}    ({}\n", indent_str, var));
+                    result.push_str(&pp_helper(value, indent + 3));
+                    result.push_str(&format!("{}    )\n", indent_str));
+                }
+                result.push_str(&format!("{}  )\n", indent_str));
+                result.push_str(&pp_helper(body, indent + 1));
+                result.push(')');
+                result
+            }
         }
     }
 
@@ -189,42 +240,104 @@ enum Value {
     List(Vec<Value>),
 }
 
-fn eval(node: &AstNode) -> Result<Value, String> {
+fn eval(node: &AstNode, environment: Rc<RefCell<Environment>>) -> Result<Value, String> {
     match node {
         AstNode::Number(n) => Ok(Value::Number(*n)),
-        AstNode::Symbol(s) => Ok(Value::Symbol(s.clone())),
+        AstNode::Symbol(s) => environment
+            .borrow()
+            .get(s)
+            .ok_or_else(|| format!("Undefined symbol: {}", s)),
         AstNode::List(list) => {
-            let mut evaluated = Vec::new();
-            for node in list {
-                evaluated.push(eval(node)?);
+            if list.is_empty() {
+                return Ok(Value::List(vec![]));
             }
-            Ok(Value::List(evaluated))
+            if let AstNode::Symbol(s) = &list[0] {
+                match s.as_str() {
+                    "let" => {
+                        if list.len() != 3 {
+                            return Err(
+                                "let requires exactly 2 arguments: bindings and body".to_string()
+                            );
+                        }
+                        if let AstNode::List(bindings) = &list[1] {
+                            let new_env = Rc::new(RefCell::new(Environment::with_parent(
+                                Rc::clone(&environment),
+                            )));
+                            for binding in bindings {
+                                if let AstNode::List(pair) = binding {
+                                    if pair.len() != 2 {
+                                        return Err(
+                                            "Each binding in let must be a pair".to_string()
+                                        );
+                                    }
+                                    if let AstNode::Symbol(var) = &pair[0] {
+                                        let value = eval(&pair[1], Rc::clone(&new_env))?;
+                                        new_env.borrow_mut().set(var.clone(), value);
+                                    } else {
+                                        return Err(
+                                            "First element of a binding pair must be a symbol"
+                                                .to_string(),
+                                        );
+                                    }
+                                } else {
+                                    return Err("Each binding in let must be a list".to_string());
+                                }
+                            }
+                            eval(&list[2], new_env)
+                        } else {
+                            Err("Second argument to let must be a list of bindings".to_string())
+                        }
+                    }
+                    _ => {
+                        let mut evaluated = Vec::new();
+                        for node in list {
+                            evaluated.push(eval(node, Rc::clone(&environment))?);
+                        }
+                        Ok(Value::List(evaluated))
+                    }
+                }
+            } else {
+                let mut evaluated = Vec::new();
+                for node in list {
+                    evaluated.push(eval(node, Rc::clone(&environment))?);
+                }
+                Ok(Value::List(evaluated))
+            }
         }
         AstNode::Add(a, b) => {
-            let a_val = eval(a)?;
-            let b_val = eval(b)?;
+            let a_val = eval(a, Rc::clone(&environment))?;
+            let b_val = eval(b, Rc::clone(&environment))?;
             match (a_val, b_val) {
                 (Value::Number(x), Value::Number(y)) => Ok(Value::Number(x + y)),
                 _ => Err("Addition requires two numbers".to_string()),
             }
         }
         AstNode::Print(a) => {
-            let value = eval(a)?;
+            let value = eval(a, Rc::clone(&environment))?;
             println!("{:?}", value);
             Ok(value)
+        }
+        AstNode::Let(bindings, body_expr) => {
+            let new_env = Rc::new(RefCell::new(Environment::with_parent(Rc::clone(
+                &environment,
+            ))));
+            for (var, value_expr) in bindings {
+                let value = eval(value_expr, Rc::clone(&new_env))?;
+                new_env.borrow_mut().set(var.clone(), value);
+            }
+            eval(body_expr, new_env)
         }
     }
 }
 
-type Env = HashMap<Symbol, Rc<Expr>>;
-
 fn main() {
-    let program = "(print (+ 1 (+ 2 3)))";
-    println!("{}", program);
-    println!("{:?}", tokenize(program));
+    let global_env = Rc::new(RefCell::new(Environment::new()));
+    let program = r#"(let ((x 1)) x)"#;
+    // println!("{}", program);
+    // println!("{:?}", tokenize(program));
     println!("{}", pretty_print(&parse(program)));
-    match eval(&parse(program)) {
+    match eval(&parse(program), global_env) {
         Ok(value) => println!("{:?}", value),
-        Err(e) => println!("{}", e),
+        Err(e) => println!("Oh Shid: {}", e),
     };
 }
