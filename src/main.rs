@@ -188,10 +188,10 @@ fn pretty_print(node: &AstNode) -> String {
     fn pp_helper(node: &AstNode, indent: usize) -> String {
         let indent_str = " ".repeat(indent * 2);
         match node {
-            AstNode::Symbol(s) => format!("{}{}", indent_str, s),
-            AstNode::Number(n) => format!("{}{}", indent_str, n),
+            AstNode::Symbol(s) => format!("{}Symbol {}", indent_str, s),
+            AstNode::Number(n) => format!("{}Number {}", indent_str, n),
             AstNode::List(list) => {
-                let mut result = format!("{}(\n", indent_str);
+                let mut result = format!("{}List (\n", indent_str);
                 for (i, node) in list.iter().enumerate() {
                     if i > 0 {
                         result.push('\n');
@@ -202,7 +202,7 @@ fn pretty_print(node: &AstNode) -> String {
                 result
             }
             AstNode::Add(a, b) => {
-                let mut result = format!("{}(\n{}  +\n", indent_str, indent_str);
+                let mut result = format!("{}Add (\n{}  +\n", indent_str, indent_str);
                 result.push_str(&pp_helper(a, indent + 1));
                 result.push('\n');
                 result.push_str(&pp_helper(b, indent + 2));
