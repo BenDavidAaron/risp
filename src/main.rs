@@ -146,36 +146,46 @@ fn parse(program: &str) -> AstNode {
 }
 
 fn pretty_print(node: &AstNode) -> String {
-    fn indent(depth: usize) -> String {
-        " ".repeat(depth * 2)
+    fn pp_helper(node: &AstNode, indent: usize) -> String {
+        let indent_str = " ".repeat(indent * 2);
+        match node {
+            AstNode::Symbol(s) => format!("{}{}", indent_str, s),
+            AstNode::Number(n) => format!("{}{}", indent_str, n),
+            AstNode::List(list) => {
+                let mut result = format!("{}(\n", indent_str);
+                for (i, node) in list.iter().enumerate() {
+                    if i > 0 {
+                        result.push('\n');
+                    }
+                    result.push_str(&pp_helper(node, indent + 1));
+                }
+                result.push(')');
+                result
+            }
+            AstNode::Add(a, b) => {
+                let mut result = format!("{}(\n{}  +\n", indent_str, indent_str);
+                result.push_str(&pp_helper(a, indent + 1));
+                result.push('\n');
+                result.push_str(&pp_helper(b, indent + 2));
+                result.push(')');
+                result
+            }
+            AstNode::Print(a) => {
+                let mut result = format!("{}(\n{}  print\n", indent_str, indent_str);
+                result.push_str(&pp_helper(a, indent + 1));
+                result.push(')');
+                result
+            }
+        }
     }
 
-    match node {
-        AstNode::Symbol(s) => s.clone(),
-        AstNode::Number(n) => n.to_string(),
-        AstNode::List(list) => {
-            let mut result = String::from("(\n");
-            for node in list {
-                result.push_str(&format!("{}  {}\n", indent(1), pretty_print(node)));
-            }
-            result.push(')');
-            result
-        }
-        AstNode::Add(a, b) => format!(
-            "(\n{}+ {}\n{}  {}\n)",
-            indent(1),
-            pretty_print(a),
-            indent(1),
-            pretty_print(b)
-        ),
-        AstNode::Print(a) => format!("(\n{}print {}\n)", indent(1), pretty_print(a)),
-    }
+    pp_helper(node, 0)
 }
 
 type Env = HashMap<Symbol, Rc<Expr>>;
 
 fn main() {
-    let program = "(+ 1 2)";
+    let program = "(print (+ 1 (+ 2 3)))";
     println!("{}", program);
     println!("{:?}", tokenize(program));
     println!("{}", pretty_print(&parse(program)));
