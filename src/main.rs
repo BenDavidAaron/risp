@@ -343,7 +343,20 @@ fn eval(node: &AstNode, environment: Rc<RefCell<Environment>>) -> Result<Value, 
 
 fn main() {
     let global_env = Rc::new(RefCell::new(Environment::new()));
-    let program = r#"(let ((x 1) (y 2)) (add x y))"#;
+    let program = r#"(
+    let 
+        (
+            (x 1) 
+            (y 2)
+        ) 
+        ( let 
+            (
+                (ayy (add x y)) 
+                (lmao (add 420 69))
+            )
+            (add ayy lmao)
+        ) 
+    )"#;
     // println!("{}", program);
     // println!("{:?}", tokenize(program));
     println!("{}", pretty_print(&parse(program)));
